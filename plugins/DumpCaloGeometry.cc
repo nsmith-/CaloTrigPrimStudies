@@ -54,6 +54,10 @@
 #include "Geometry/Records/interface/CaloGeometryRecord.h"
 #include "Geometry/Records/interface/IdealGeometryRecord.h"
 
+#include "FWCore/ServiceRegistry/interface/Service.h"
+#include "CommonTools/UtilAlgos/interface/TFileService.h"
+#include "TTree.h"
+
 class DumpCaloGeometry : public edm::one::EDAnalyzer<edm::one::SharedResources, edm::one::WatchRuns>  {
   public:
     explicit DumpCaloGeometry(const edm::ParameterSet&);
@@ -73,18 +77,90 @@ class DumpCaloGeometry : public edm::one::EDAnalyzer<edm::one::SharedResources, 
     edm::ESHandle<EcalTrigTowerConstituentsMap> ecalTriggerTowerMap_;
     edm::ESHandle<HcalTrigTowerGeometry> hcalTriggerTowerMap_;
 
-    const CaloSubdetectorGeometry * ebGeometry;
-    const CaloSubdetectorGeometry * eeGeometry;
-    const CaloSubdetectorGeometry * hbGeometry;
-    const CaloSubdetectorGeometry * heGeometry;
-    const CaloSubdetectorGeometry * hfGeometry;
-    const CaloSubdetectorGeometry * hcalTriggerGeometry;
+    TTree * geoTree_;
+    struct {
+      UInt_t detId;
+      UChar_t det; 
+      Int_t ieta;
+      Int_t iphi;
+      Float_t area;
+      Int_t nCaloTowers;
+      std::vector<UInt_t> caloTower_detId;
+      std::vector<Int_t> caloTower_rho;
+      std::vector<Int_t> caloTower_z;
+      std::vector<Float_t> caloTower_eta;
+      std::vector<Float_t> caloTower_phi;
+      std::vector<Float_t> caloTower_depth;
+    } geoRow_;
+
+    void clearRow() {
+      geoRow_.caloTower_detId.clear();
+      geoRow_.caloTower_rho.clear();
+      geoRow_.caloTower_z.clear();
+      geoRow_.caloTower_eta.clear();
+      geoRow_.caloTower_phi.clear();
+      geoRow_.caloTower_depth.clear();
+    };
+
+    template<typename T>
+    void fillFromMap(const std::map<T, std::vector<std::pair<const DetId, const CaloCellGeometry*>>>& ttMap) {
+      for(const auto& tt : ttMap) {
+        int absieta = std::abs(tt.first.ieta());
+        double area{0.};
+        for(const auto& detid_cell : tt.second) {
+          auto&& cell = detid_cell.second;
+          // Catch only first layer for HCAL
+          if (
+               (absieta < 17 and cell->getPosition().perp() < 185.)
+               or (absieta < 18 and cell->getPosition().perp() < 205.)
+               or (absieta < 29 and std::fabs(cell->getPosition().z()) < 405.)
+               or (absieta < 42 and std::fabs(cell->getPosition().z()) < 1120.)
+             )
+          {
+            area += detid_cell.second->etaSpan() * detid_cell.second->phiSpan();
+          }
+        }
+        geoRow_.detId = tt.first.rawId();
+        geoRow_.det = tt.first.rawId()>>24;
+        geoRow_.ieta = tt.first.ieta();
+        geoRow_.iphi = tt.first.iphi();
+        geoRow_.area = area;
+        geoRow_.nCaloTowers = 0;
+        for(const auto& detid_cell : tt.second) {
+          geoRow_.caloTower_detId.push_back(detid_cell.first.rawId());
+          auto&& cell = detid_cell.second;
+          geoRow_.caloTower_rho.push_back(cell->getPosition().perp());
+          geoRow_.caloTower_z.push_back(cell->getPosition().z());
+          geoRow_.caloTower_eta.push_back(cell->etaPos());
+          geoRow_.caloTower_phi.push_back(cell->phiPos());
+          float depth = cell->getBackPoint().mag() - cell->getPosition().mag();
+          geoRow_.caloTower_depth.push_back(depth);
+          geoRow_.nCaloTowers++;
+        }
+        geoTree_->Fill();
+        clearRow();
+      }
+    };
 };
 
 DumpCaloGeometry::DumpCaloGeometry(const edm::ParameterSet& iConfig)
-
 {
   usesResource("TFileService");
+  edm::Service<TFileService> fs;
+
+  geoTree_ = fs->make<TTree>("geoTree", "Calo trigger tower geometry");
+  geoTree_->Branch("detId", &geoRow_.detId, "detId/i");
+  geoTree_->Branch("det", &geoRow_.det, "detId/b");
+  geoTree_->Branch("ieta", &geoRow_.ieta, "ieta/I");
+  geoTree_->Branch("iphi", &geoRow_.iphi, "iphi/I");
+  geoTree_->Branch("area", &geoRow_.area, "area/F");
+  geoTree_->Branch("nCaloTowers", &geoRow_.nCaloTowers, "nCaloTowers/i");
+  geoTree_->Branch("caloTower_detId", &geoRow_.caloTower_detId);
+  geoTree_->Branch("caloTower_rho", &geoRow_.caloTower_rho);
+  geoTree_->Branch("caloTower_z", &geoRow_.caloTower_z);
+  geoTree_->Branch("caloTower_eta", &geoRow_.caloTower_eta);
+  geoTree_->Branch("caloTower_phi", &geoRow_.caloTower_phi);
+  geoTree_->Branch("caloTower_depth", &geoRow_.caloTower_depth);
 }
 
 
@@ -106,64 +182,54 @@ DumpCaloGeometry::beginRun(const edm::Run& iRun, const edm::EventSetup& iSetup)
   iSetup.get<IdealGeometryRecord>().get(ecalTriggerTowerMap_);
   iSetup.get<CaloGeometryRecord>().get(hcalTriggerTowerMap_);
 
-  std::cout << "detid,etaPos,phiPos,etaSpan,phiSpan,depth,ieta,iphi" << std::endl;
-
-  ebGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Ecal, EcalBarrel);
+  std::map<EcalTrigTowerDetId, std::vector<std::pair<const DetId, const CaloCellGeometry*>>> ebTTmap;
+  auto ebGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Ecal, EcalBarrel);
   for ( const auto& detId : ebGeometry->getValidDetIds() ) {
     const CaloCellGeometry * cell = ebGeometry->getGeometry(detId);
-    float depth = cell->getBackPoint().mag() - cell->getPosition().mag();
     EcalTrigTowerDetId towerDetId = ecalTriggerTowerMap_->towerOf(detId);
-
-    std::cout << detId.rawId()
-      << "," << cell->etaPos() << "," << cell->phiPos()
-      << "," << cell->etaSpan() << "," << cell->phiSpan() << "," << depth
-      << "," << towerDetId.ieta() << "," << towerDetId.iphi()
-      << std::endl;
+    ebTTmap[towerDetId].emplace_back(detId, cell);
   }
 
-  eeGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Ecal, EcalEndcap);
+
+  std::map<EcalTrigTowerDetId, std::vector<std::pair<const DetId, const CaloCellGeometry*>>> eeTTmap;
+  auto eeGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Ecal, EcalEndcap);
   for ( const auto& detId : eeGeometry->getValidDetIds() ) {
     const CaloCellGeometry * cell = eeGeometry->getGeometry(detId);
-    float depth = cell->getBackPoint().mag() - cell->getPosition().mag();
     EcalTrigTowerDetId towerDetId = ecalTriggerTowerMap_->towerOf(detId);
-
-    std::cout << detId.rawId()
-      << "," << cell->etaPos() << "," << cell->phiPos()
-      << "," << cell->etaSpan() << "," << cell->phiSpan() << "," << depth
-      << "," << towerDetId.ieta() << "," << towerDetId.iphi()
-      << std::endl;
+    eeTTmap[towerDetId].emplace_back(detId, cell);
   }
 
-  hbGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Hcal, HcalBarrel);
+
+  std::map<HcalTrigTowerDetId, std::vector<std::pair<const DetId, const CaloCellGeometry*>>> hbTTmap;
+  auto hbGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Hcal, HcalBarrel);
   for ( const auto& detId : hbGeometry->getValidDetIds() ) {
     const CaloCellGeometry * cell = hbGeometry->getGeometry(detId);
-    float depth = cell->getBackPoint().mag() - cell->getPosition().mag();
-
     auto towerDetIds = hcalTriggerTowerMap_->towerIds(detId);
     if ( towerDetIds.size() == 0 ) {
       std::cout << "No-tower hcal DetId" << std::endl;
       continue;
     }
-    HcalTrigTowerDetId towerDetId = * std::min_element(begin(towerDetIds), end(towerDetIds), [](auto a, auto b) {
+    HcalTrigTowerDetId towerDetId = * std::min_element(begin(towerDetIds), end(towerDetIds),
+      [](auto a, auto b) {
         // a < b, prefer highest version lower iphi
         return a.version() > b.version() || ( a.version() == b.version() && a.iphi() < b.iphi() );
-      });
-
-    std::cout << detId.rawId()
-      << "," << cell->etaPos() << "," << cell->phiPos()
-      << "," << cell->etaSpan() << "," << cell->phiSpan() << "," << depth
-      << "," << towerDetId.ieta() << "," << towerDetId.iphi()
-      << std::endl;
+      }
+    );
+    hbTTmap[towerDetId].emplace_back(detId, cell);
   }
 
-  std::cout << "reading he" << std::endl;
-  heGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Hcal, HcalEndcap);
+  fillFromMap(ebTTmap);
+  fillFromMap(eeTTmap);
+  fillFromMap(hbTTmap);
 
-  std::cout << "reading hf" << std::endl;
-  hfGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Hcal, HcalForward);
+  // std::cout << "reading he" << std::endl;
+  // auto heGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Hcal, HcalEndcap);
 
-  std::cout << "reading hcal tt" << std::endl;
-  hcalTriggerGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Hcal, HcalTriggerTower);
+  // std::cout << "reading hf" << std::endl;
+  // auto hfGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Hcal, HcalForward);
+
+  // std::cout << "reading hcal tt" << std::endl;
+  // auto hcalTriggerGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Hcal, HcalTriggerTower);
 }
 
 

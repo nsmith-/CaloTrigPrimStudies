@@ -6,6 +6,7 @@ from Configuration.StandardSequences.Eras import eras
 process = cms.Process('TEST',eras.Run2_2017)
 options = VarParsing()
 options.register('runNumber', 1, VarParsing.multiplicity.singleton, VarParsing.varType.int, 'Run to analyze')
+options.register('outputFile', 'ttGeometry.root', VarParsing.multiplicity.singleton, VarParsing.varType.string, 'Output File')
 options.parseArguments()
 
 # import of standard configurations
@@ -43,3 +44,9 @@ process.dump = cms.EDAnalyzer("DumpCaloGeometry")
 
 # Path and EndPath definitions
 process.p = cms.Path(process.dump)
+
+process.TFileService = cms.Service(
+    "TFileService", fileName = cms.string(options.outputFile),
+    closeFileFast = cms.untracked.bool(True)
+)
+
