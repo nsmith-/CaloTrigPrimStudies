@@ -86,11 +86,12 @@ class DumpCaloGeometry : public edm::one::EDAnalyzer<edm::one::SharedResources, 
       Float_t area;
       Int_t nCaloTowers;
       std::vector<UInt_t> caloTower_detId;
-      std::vector<Int_t> caloTower_rho;
-      std::vector<Int_t> caloTower_z;
+      std::vector<Float_t> caloTower_rho;
+      std::vector<Float_t> caloTower_z;
       std::vector<Float_t> caloTower_eta;
       std::vector<Float_t> caloTower_phi;
       std::vector<Float_t> caloTower_depth;
+      std::vector<Float_t> caloTower_area;
     } geoRow_;
 
     void clearRow() {
@@ -100,6 +101,7 @@ class DumpCaloGeometry : public edm::one::EDAnalyzer<edm::one::SharedResources, 
       geoRow_.caloTower_eta.clear();
       geoRow_.caloTower_phi.clear();
       geoRow_.caloTower_depth.clear();
+      geoRow_.caloTower_area.clear();
     };
 
     template<typename T>
@@ -111,13 +113,14 @@ class DumpCaloGeometry : public edm::one::EDAnalyzer<edm::one::SharedResources, 
           auto&& cell = detid_cell.second;
           // Catch only first layer for HCAL
           if (
-               (absieta < 17 and cell->getPosition().perp() < 185.)
-               or (absieta < 18 and cell->getPosition().perp() < 205.)
-               or (absieta < 29 and std::fabs(cell->getPosition().z()) < 405.)
-               or (absieta < 42 and std::fabs(cell->getPosition().z()) < 1120.)
-             )
+               tt.first.det() == DetId::Ecal
+               or (absieta < 17 and cell->getPosition().perp() < 185.)
+               or (absieta == 17 and cell->getPosition().perp() < 205.)
+               or (absieta > 17 and absieta < 29 and std::fabs(cell->getPosition().z()) < 405.)
+               or (absieta > 29 and absieta < 42 and std::fabs(cell->getPosition().z()) < 1120.)
+              )
           {
-            area += detid_cell.second->etaSpan() * detid_cell.second->phiSpan();
+            area += cell->etaSpan() * cell->phiSpan();
           }
         }
         geoRow_.detId = tt.first.rawId();
@@ -135,6 +138,7 @@ class DumpCaloGeometry : public edm::one::EDAnalyzer<edm::one::SharedResources, 
           geoRow_.caloTower_phi.push_back(cell->phiPos());
           float depth = cell->getBackPoint().mag() - cell->getPosition().mag();
           geoRow_.caloTower_depth.push_back(depth);
+          geoRow_.caloTower_area.push_back(cell->etaSpan() * cell->phiSpan());
           geoRow_.nCaloTowers++;
         }
         geoTree_->Fill();
@@ -161,6 +165,7 @@ DumpCaloGeometry::DumpCaloGeometry(const edm::ParameterSet& iConfig)
   geoTree_->Branch("caloTower_eta", &geoRow_.caloTower_eta);
   geoTree_->Branch("caloTower_phi", &geoRow_.caloTower_phi);
   geoTree_->Branch("caloTower_depth", &geoRow_.caloTower_depth);
+  geoTree_->Branch("caloTower_area", &geoRow_.caloTower_area);
 }
 
 
@@ -207,6 +212,9 @@ DumpCaloGeometry::beginRun(const edm::Run& iRun, const edm::EventSetup& iSetup)
     auto towerDetIds = hcalTriggerTowerMap_->towerIds(detId);
     if ( towerDetIds.size() == 0 ) {
       std::cout << "No-tower hcal DetId" << std::endl;
+      continue;
+    }
+    else if ( std::find(begin(towerDetIds), end(towerDetIds), detId) != end(towerDetIds) ) {
       continue;
     }
     HcalTrigTowerDetId towerDetId = * std::min_element(begin(towerDetIds), end(towerDetIds),
