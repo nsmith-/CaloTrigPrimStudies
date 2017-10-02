@@ -1,0 +1,14 @@
+<use name="FWCore/Framework"/>
+<use name="FWCore/PluginManager"/>
+<use name="FWCore/ParameterSet"/>
+<use name="DataFormats/DetId"/>
+<use name="DataFormats/EcalDetId"/>
+<use name="DataFormats/HcalDetId"/>
+<use name="DataFormats/CaloTowers"/>
+<use name="DataFormats/GeometryVector"/>
+<use name="Geometry/CaloGeometry"/>
+<use name="Geometry/CaloTopology"/>
+<use name="Geometry/HcalTowerAlgo"/>
+<use name="Geometry/Records"/>
+<use name="clhep"/>
+<flags EDM_PLUGIN="1"/>
