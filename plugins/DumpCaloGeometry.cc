@@ -1,9 +1,9 @@
 // -*- C++ -*-
 //
-// Package:    Analysis/DumpCaloGeometry
+// Package:    L1Trigger/CaloTrigPrimStudies
 // Class:      DumpCaloGeometry
 // 
-/**\class DumpCaloGeometry DumpCaloGeometry.cc Analysis/DumpCaloGeometry/plugins/DumpCaloGeometry.cc
+/**\class DumpCaloGeometry DumpCaloGeometry.cc L1Trigger/CaloTrigPrimStudies/plugins/DumpCaloGeometry.cc
 
  Description: 
 
