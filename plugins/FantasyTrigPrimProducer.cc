@@ -60,9 +60,15 @@
 #include "DataFormats/HcalRecHit/interface/HFRecHit.h"
 #include "DataFormats/HcalRecHit/interface/HcalRecHitCollections.h"
 
-#include "FWCore/ServiceRegistry/interface/Service.h"
-#include "CommonTools/UtilAlgos/interface/TFileService.h"
-#include "TTree.h"
+#include "DataFormats/EcalDetId/interface/EcalTrigTowerDetId.h"
+#include "DataFormats/EcalDigi/interface/EcalDigiCollections.h"
+#include "DataFormats/EcalDigi/interface/EcalTriggerPrimitiveDigi.h"
+#include "DataFormats/EcalDigi/interface/EcalTriggerPrimitiveSample.h"
+
+#include "DataFormats/HcalDetId/interface/HcalTrigTowerDetId.h"
+#include "DataFormats/HcalDigi/interface/HcalDigiCollections.h"
+#include "DataFormats/HcalDigi/interface/HcalTriggerPrimitiveDigi.h"
+#include "DataFormats/HcalDigi/interface/HcalTriggerPrimitiveSample.h"
 
 class FantasyTrigPrimProducer : public edm::stream::EDProducer<>  {
   public:
@@ -94,6 +100,8 @@ FantasyTrigPrimProducer::FantasyTrigPrimProducer(const edm::ParameterSet& iConfi
   hbheRecHitsToken_(consumes<HBHERecHitCollection>(iConfig.getParameter<edm::InputTag>("hbheRecHits"))),
   hfRecHitsToken_(consumes<HFRecHitCollection>(iConfig.getParameter<edm::InputTag>("hfRecHits")))
 {
+  produces<EcalTrigPrimDigiCollection>();
+  produces<HcalTrigPrimDigiCollection>();
 }
 
 
@@ -114,22 +122,8 @@ FantasyTrigPrimProducer::beginRun(const edm::Run& iRun, const edm::EventSetup& i
 void
 FantasyTrigPrimProducer::produce(edm::Event& iEvent, const edm::EventSetup& iSetup)
 {
-  // analogous to EcalTrigTowerConstituentsMap::towerOf()
-  auto hcalTowerOf = [this](const DetId& detId) -> HcalTrigTowerDetId {
-    auto towerDetIds = hcalTriggerTowerMap_->towerIds(detId);
-    if ( towerDetIds.size() == 0 ) {
-      std::cout << "HCAL DetId that is not mapped to a trigger tower" << detId.rawId() << std::endl;
-      return HcalTrigTowerDetId();
-    }
-    HcalTrigTowerDetId towerDetId = * std::min_element(begin(towerDetIds), end(towerDetIds),
-      [](auto a, auto b) {
-        // a < b, prefer highest version lower iphi
-        return a.version() > b.version() || ( a.version() == b.version() && a.iphi() < b.iphi() );
-      }
-    );
-    return towerDetId;
-  };
-
+  std::unique_ptr<EcalTrigPrimDigiCollection> ecalTPs(new EcalTrigPrimDigiCollection);
+  std::unique_ptr<HcalTrigPrimDigiCollection> hcalTPs(new HcalTrigPrimDigiCollection);
 
   edm::Handle<EcalRecHitCollection> ebRecHits;
   iEvent.getByToken(ebRecHitsToken_, ebRecHits);
@@ -153,19 +147,89 @@ FantasyTrigPrimProducer::produce(edm::Event& iEvent, const edm::EventSetup& iSet
 
   std::map<HcalTrigTowerDetId, std::vector<const HBHERecHit*>> hbheTThits;
   for ( const auto& hit : *hbheRecHits ) {
-    HcalTrigTowerDetId towerDetId = hcalTowerOf(hit.id());
-    hbheTThits[towerDetId].emplace_back(&hit);
+    auto towerDetIds = hcalTriggerTowerMap_->towerIds(hit.id());
+    for ( const auto& towerDetId : towerDetIds ) {
+      hbheTThits[towerDetId].emplace_back(&hit);
+    }
   }
 
   std::map<HcalTrigTowerDetId, std::vector<const HFRecHit*>> hfTThits;
   for ( const auto& hit : *hfRecHits ) {
-    HcalTrigTowerDetId towerDetId = hcalTowerOf(hit.id());
-    hfTThits[towerDetId].emplace_back(&hit);
+    auto towerDetIds = hcalTriggerTowerMap_->towerIds(hit.id());
+    for ( const auto& towerDetId : towerDetIds ) {
+      hfTThits[towerDetId].emplace_back(&hit);
+    }
   }
 
-  (void) ecalTThits;
-  (void) hbheTThits;
-  (void) hfTThits;
+  auto ebGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Ecal, EcalBarrel);
+  auto eeGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Ecal, EcalEndcap);
+  auto hcalGeometry = caloGeometry_->getSubdetectorGeometry(DetId::Hcal, HcalBarrel);  // actually all of HCAL
+
+  for ( const auto& dh : ecalTThits ) {
+    int absIeta = std::abs(dh.first.ieta());
+    double towerEt = 0.;
+    for ( const auto* hit : dh.second ) {
+      if ( hit->id().subdetId() == EcalBarrel ) {
+        towerEt += hit->energy() / cosh(ebGeometry->getGeometry(hit->id())->etaPos());
+      } else {
+        towerEt += hit->energy() / cosh(eeGeometry->getGeometry(hit->id())->etaPos());
+      }
+    }
+
+    // Reduced granularity
+    if ( absIeta > 26 ) {
+      towerEt *= 0.5;
+    }
+    // LSB 0.5 GeV
+    uint32_t rawTowerEt = int(round(towerEt * 2.)) & 0xff;
+
+    EcalTriggerPrimitiveDigi tp(dh.first);
+    tp.setSize(1);
+    EcalTriggerPrimitiveSample sample(rawTowerEt); 
+    tp.setSample(0, sample);
+    ecalTPs->push_back(tp);
+  }
+
+  for ( const auto& dh : hbheTThits ) {
+    int absIeta = std::abs(dh.first.ieta());
+    double towerEt = 0.;
+    for ( const auto* hit : dh.second ) {
+      towerEt += hit->energy() / cosh(hcalGeometry->getGeometry(hit->id())->etaPos());
+    }
+
+    // Reduced granularity
+    if ( absIeta > 20 ) {
+      towerEt *= 0.5;
+    }
+    // Soon, LSB 0.5 GeV
+    double compressedEt = towerEt * 2.;
+    uint32_t rawTowerEt = int(round(compressedEt)) & 0xff;
+
+    HcalTriggerPrimitiveDigi tp(dh.first);
+    tp.setSize(1);
+    HcalTriggerPrimitiveSample sample(rawTowerEt); 
+    tp.setSample(0, sample);
+    hcalTPs->push_back(tp);
+  }
+
+  for ( const auto& dh : hfTThits ) {
+    double towerEt = 0.;
+    for ( const auto* hit : dh.second ) {
+      towerEt += hit->energy() / cosh(hcalGeometry->getGeometry(hit->id())->etaPos());
+    }
+
+    // LSB 0.5 GeV
+    uint32_t rawTowerEt = int(round(towerEt * 2.)) & 0xff;
+
+    HcalTriggerPrimitiveDigi tp(dh.first);
+    tp.setSize(1);
+    HcalTriggerPrimitiveSample sample(rawTowerEt); 
+    tp.setSample(0, sample);
+    hcalTPs->push_back(tp);
+  }
+
+  iEvent.put(std::move(ecalTPs));
+  iEvent.put(std::move(hcalTPs));
 }
 
 
