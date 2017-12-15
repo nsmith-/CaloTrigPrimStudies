@@ -7,7 +7,7 @@ import FWCore.ParameterSet.Config as cms
 
 from Configuration.StandardSequences.Eras import eras
 
-process = cms.Process('RECO')
+process = cms.Process('RECO', eras.Run2_2017)
 
 # import of standard configurations
 process.load('Configuration.StandardSequences.Services_cff')
@@ -27,7 +27,7 @@ process.load('Configuration.Geometry.GeometrySimDB_cff')
 process.HcalTrigTowerGeometryESProducer = cms.ESProducer("HcalTrigTowerGeometryESProducer")
 
 process.maxEvents = cms.untracked.PSet(
-    input = cms.untracked.int32(10)
+    input = cms.untracked.int32(1000)
 )
 
 # Input source

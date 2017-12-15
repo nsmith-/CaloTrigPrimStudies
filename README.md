@@ -1,8 +1,8 @@
 ## Installation
 ```bash
 # Any 90X+ CMSSW should work ok
-cmsrel CMSSW_10_0_0_pre2
-cd CMSSW_10_0_0_pre2/src
+cmsrel CMSSW_9_4_1
+cd CMSSW_9_4_1/src
 cmsenv
 git cms-init
 mkdir -p L1Trigger && cd L1Trigger 
