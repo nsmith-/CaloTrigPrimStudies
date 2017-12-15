@@ -25,14 +25,15 @@ process.load('Configuration.StandardSequences.FrontierConditions_GlobalTag_cff')
 process.load('Configuration.Geometry.GeometrySimDB_cff')
 # Would have come from sim hcal tp imports
 process.HcalTrigTowerGeometryESProducer = cms.ESProducer("HcalTrigTowerGeometryESProducer")
+process.load('SimCalorimetry.HcalTrigPrimProducers.hcaltpdigi_cff')
 
 process.maxEvents = cms.untracked.PSet(
-    input = cms.untracked.int32(1000)
+    input = cms.untracked.int32(20)
 )
 
 # Input source
 process.source = cms.Source("PoolSource",
-    fileNames = cms.untracked.vstring('/store/data/Run2017G/HLTPhysics/RAW/v1/000/306/584/00000/1277E19C-D2C8-E711-AA4F-02163E01A5C7.root'),
+    fileNames = cms.untracked.vstring('/store/data/Run2017F/JetHT/RAW/v1/000/305/044/00000/F0AEA3D4-5DB0-E711-94D7-02163E019D2B.root'),
     secondaryFileNames = cms.untracked.vstring()
 )
 
@@ -58,6 +59,7 @@ process.FEVTDEBUGHLToutput = cms.OutputModule("PoolOutputModule",
     #outputCommands = process.FEVTDEBUGHLTEventContent.outputCommands,
     outputCommands = cms.untracked.vstring(
         'drop *',
+        'keep *_*_*_LHC',
         'keep EcalTriggerPrimitiveDigisSorted_*_*_*',
         'keep HcalTriggerPrimitiveDigisSorted_*_*_*',
     ),
