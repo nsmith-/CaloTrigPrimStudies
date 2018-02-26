@@ -70,6 +70,10 @@
 #include "DataFormats/HcalDigi/interface/HcalTriggerPrimitiveDigi.h"
 #include "DataFormats/HcalDigi/interface/HcalTriggerPrimitiveSample.h"
 
+#include "CalibFormats/CaloTPG/interface/CaloTPGTranscoder.h"
+#include "CalibFormats/CaloTPG/interface/CaloTPGRecord.h"
+#include "CalibFormats/CaloTPG/interface/HcalTPGCompressor.h"
+
 class FantasyTrigPrimProducer : public edm::stream::EDProducer<>  {
   public:
     explicit FantasyTrigPrimProducer(const edm::ParameterSet&);
@@ -122,6 +126,9 @@ FantasyTrigPrimProducer::beginRun(const edm::Run& iRun, const edm::EventSetup& i
 void
 FantasyTrigPrimProducer::produce(edm::Event& iEvent, const edm::EventSetup& iSetup)
 {
+  edm::ESHandle<CaloTPGTranscoder> decoder;
+  iSetup.get<CaloTPGRecord>().get(decoder);
+
   std::unique_ptr<EcalTrigPrimDigiCollection> ecalTPs(new EcalTrigPrimDigiCollection);
   std::unique_ptr<HcalTrigPrimDigiCollection> hcalTPs(new HcalTrigPrimDigiCollection);
 
@@ -188,6 +195,14 @@ FantasyTrigPrimProducer::produce(edm::Event& iEvent, const edm::EventSetup& iSet
     EcalTriggerPrimitiveSample sample(rawTowerEt); 
     tp.setSample(0, sample);
     ecalTPs->push_back(tp);
+    if ( absIeta > 26 ) {
+      EcalTrigTowerDetId id2(dh.first.zside(), EcalSubdetector::EcalEndcap, std::abs(dh.first.ieta()), dh.first.iphi()+1*dh.first.zside());
+      EcalTriggerPrimitiveDigi tp(id2);
+      tp.setSize(1);
+      EcalTriggerPrimitiveSample sample(rawTowerEt); 
+      tp.setSample(0, sample);
+      ecalTPs->push_back(tp);
+    }
   }
 
   for ( const auto& dh : hbheTThits ) {
@@ -202,12 +217,14 @@ FantasyTrigPrimProducer::produce(edm::Event& iEvent, const edm::EventSetup& iSet
       towerEt *= 0.5;
     }
     // Soon, LSB 0.5 GeV
-    double compressedEt = towerEt * 2.;
-    uint32_t rawTowerEt = int(round(compressedEt)) & 0xff;
+    uint32_t rawTowerEt = int(round(towerEt * 2.)) & 0xff;
 
     HcalTriggerPrimitiveDigi tp(dh.first);
     tp.setSize(1);
-    HcalTriggerPrimitiveSample sample(rawTowerEt); 
+    // Need to comress, easier to pull changes from https://github.com/cms-sw/cmssw/pull/21657/files
+    // HcalTriggerPrimitiveSample sample = decoder->getHcalCompressor()->compress(dh.first, rawTowerEt, 0);
+    // std::cout << rawTowerEt*0.5 << decoder->hcaletValue(dh.first, sample) << std::endl;
+    HcalTriggerPrimitiveSample sample(rawTowerEt);
     tp.setSample(0, sample);
     hcalTPs->push_back(tp);
   }
