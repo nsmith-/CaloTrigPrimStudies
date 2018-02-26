@@ -92,6 +92,8 @@ class DumpCaloGeometry : public edm::one::EDAnalyzer<edm::one::SharedResources, 
       std::vector<Float_t> caloTower_phi;
       std::vector<Float_t> caloTower_depth;
       std::vector<Float_t> caloTower_area;
+      std::vector<Float_t> caloTower_etaSpan;
+      std::vector<Float_t> caloTower_phiSpan;
     } geoRow_;
 
     void clearRow() {
@@ -102,6 +104,8 @@ class DumpCaloGeometry : public edm::one::EDAnalyzer<edm::one::SharedResources, 
       geoRow_.caloTower_phi.clear();
       geoRow_.caloTower_depth.clear();
       geoRow_.caloTower_area.clear();
+      geoRow_.caloTower_etaSpan.clear();
+      geoRow_.caloTower_phiSpan.clear();
     };
 
     template<typename T>
@@ -139,6 +143,8 @@ class DumpCaloGeometry : public edm::one::EDAnalyzer<edm::one::SharedResources, 
           float depth = cell->getBackPoint().mag() - cell->getPosition().mag();
           geoRow_.caloTower_depth.push_back(depth);
           geoRow_.caloTower_area.push_back(cell->etaSpan() * cell->phiSpan());
+          geoRow_.caloTower_etaSpan.push_back(cell->etaSpan());
+          geoRow_.caloTower_phiSpan.push_back(cell->phiSpan());
           geoRow_.nCaloTowers++;
         }
         geoTree_->Fill();
@@ -166,6 +172,8 @@ DumpCaloGeometry::DumpCaloGeometry(const edm::ParameterSet& iConfig)
   geoTree_->Branch("caloTower_phi", &geoRow_.caloTower_phi);
   geoTree_->Branch("caloTower_depth", &geoRow_.caloTower_depth);
   geoTree_->Branch("caloTower_area", &geoRow_.caloTower_area);
+  geoTree_->Branch("caloTower_etaSpan", &geoRow_.caloTower_etaSpan);
+  geoTree_->Branch("caloTower_phiSpan", &geoRow_.caloTower_phiSpan);
 }
 
 
